@@ -12,7 +12,7 @@
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
 
-#define BCM2708_PERI_BASE        0x20000000
+#define BCM2708_PERI_BASE        0x3F000000  /* For Raspberry Pi Zero 2W (or 0xFE000000) - for older models this may change */
 #define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
 #define BLOCKSIZE (4*1024)
 
@@ -35,16 +35,16 @@
 #define DATA7 11
 
 // GPIO pins for control lines
-#define DC 14  // LCD_RS
-#define CS 13  // LCD_CS
-#define RD 16  // LCD_RD
-#define WR 15  // LCD_WR
-#define RESET 12 // LCD_RST
+#define DC 20
+#define CS 21
+#define RD 22
+#define WR 23
+#define RESET 24
 
 #define ORIENTATION 0 //0=LANDSCAPE 1=PORTRAIT  
 
-#define DISPLAY_WIDTH   240
-#define DISPLAY_HEIGHT  400
+#define DISPLAY_WIDTH   400
+#define DISPLAY_HEIGHT  240
 
 #define DISPLAY_BPP     16
 
@@ -458,7 +458,7 @@ static int st7793_probe(struct platform_device *pdev)
     info->fix.smem_start = (unsigned long)vmem;
     info->fix.smem_len = vmem_size;
     info->var = st7793_var;
-    info->flags = FBINFO_FLAG_DEFAULTS | FBINFO_VIRTFB;
+    info->flags = FBINFO_VIRTFB;
 
     info->fbdefio = &st7793_defio;
     fb_deferred_io_init(info);
