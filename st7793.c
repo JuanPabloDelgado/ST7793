@@ -1,10 +1,3 @@
-/*
- * ST7793 LCD for Raspberry Pi Zero 2W in 8-bit mode
- */
-
-#define BCM2708_PERI_BASE 0xFE000000
-#define GPIO_BASE (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
-
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -19,17 +12,19 @@
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
 
-#define BLOCKSIZE (4 * 1024)
+#define BCM2708_PERI_BASE        0x20000000
+#define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
+#define BLOCKSIZE (4*1024)
 
 // GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x) or SET_GPIO_ALT(x,y)
-#define INP_GPIO(g) *(gpio + ((g) / 10)) &= ~(7 << (((g) % 10) * 3))
-#define OUT_GPIO(g) *(gpio + ((g) / 10)) |= (1 << (((g) % 10) * 3))
-#define SET_GPIO_ALT(g, a) *(gpio + (((g) / 10))) |= (((a) <= 3 ? (a) + 4 : (a) == 4 ? 3 : 2) << (((g) % 10) * 3))
+#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
+#define OUT_GPIO(g) *(gpio+((g)/10)) |=  (1<<(((g)%10)*3))
+#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
 
-#define GPIO_SET *(gpio + 7)  // sets bits which are 1 ignores bits which are 0
-#define GPIO_CLR *(gpio + 10) // clears bits which are 1 ignores bits which are 0
+#define GPIO_SET *(gpio+7)  // sets   bits which are 1 ignores bits which are 0
+#define GPIO_CLR *(gpio+10) // clears bits which are 1 ignores bits which are 0
 
-// GPIO pins for data lines (8-bit mode)
+// GPIO pins for data lines
 #define DATA0 4
 #define DATA1 5
 #define DATA2 6
@@ -40,25 +35,25 @@
 #define DATA7 11
 
 // GPIO pins for control lines
-#define DC 20
-#define CS 21
-#define RD 22
-#define WR 23
-#define RESET 24
+#define DC 14  // LCD_RS
+#define CS 13  // LCD_CS
+#define RD 16  // LCD_RD
+#define WR 15  // LCD_WR
+#define RESET 12 // LCD_RST
 
-#define ORIENTATION 0 // 0=LANDSCAPE, 1=PORTRAIT
+#define ORIENTATION 0 //0=LANDSCAPE 1=PORTRAIT  
 
-#define DISPLAY_WIDTH 240
-#define DISPLAY_HEIGHT 400
+#define DISPLAY_WIDTH   240
+#define DISPLAY_HEIGHT  400
 
-#define DISPLAY_BPP 16
+#define DISPLAY_BPP     16
 
 volatile unsigned *gpio;
 
 // Set to output
 static void gpio_setoutput(char g)
 {
-    INP_GPIO(g); // must use INP_GPIO before we can use OUT_GPIO
+    INP_GPIO(g); // must use INP_GPIO before we can use OUT_GPIO 
     OUT_GPIO(g);
 }
 
@@ -71,8 +66,6 @@ static void gpio_setstate(char g, char state)
 // initialization of GPIO
 static void tft_init_board(struct fb_info *info)
 {
-    printk(KERN_INFO "Initializing GPIO for data and control lines\n");
-
     gpio_setoutput(DATA0);
     gpio_setoutput(DATA1);
     gpio_setoutput(DATA2);
@@ -102,24 +95,18 @@ static void tft_init_board(struct fb_info *info)
     gpio_setstate(RD, 1);
     gpio_setstate(WR, 1);
     gpio_setstate(RESET, 1);
-
-    printk(KERN_INFO "GPIO initialization complete\n");
 }
 
 // hard reset of the graphic controller and the tft
 static void tft_hard_reset(void)
 {
-    printk(KERN_INFO "Performing hard reset\n");
-
     gpio_setstate(RESET, 0);
     msleep(120);
     gpio_setstate(RESET, 1);
     msleep(120);
-
-    printk(KERN_INFO "Hard reset complete\n");
 }
 
-static void gpio_set_parallel_data(unsigned char data)
+static void gpio_set_parallel_data(char data)
 {
     gpio_setstate(DATA0, ((data >> 0) & 0x01));
     gpio_setstate(DATA1, ((data >> 1) & 0x01));
@@ -132,7 +119,7 @@ static void gpio_set_parallel_data(unsigned char data)
 }
 
 // write command
-static void tft_command_write(unsigned char command)
+static void tft_command_write(char command)
 {
     gpio_setstate(DC, 0);
     gpio_set_parallel_data(command);
@@ -141,7 +128,7 @@ static void tft_command_write(unsigned char command)
 }
 
 // write data
-static void tft_data_write(unsigned char data)
+static void tft_data_write(char data)
 {
     gpio_setstate(DC, 1);
     gpio_set_parallel_data(data);
@@ -152,8 +139,6 @@ static void tft_data_write(unsigned char data)
 // initialization of ST7793
 static void tft_init(struct fb_info *info)
 {
-    printk(KERN_INFO "Starting ST7793 initialization sequence\n");
-
     tft_hard_reset();
     
     // ST7793 initialization sequence
@@ -161,15 +146,12 @@ static void tft_init(struct fb_info *info)
     msleep(120);
     tft_command_write(0x11); // Sleep out
     msleep(120);
+    tft_command_write(0x29); // Display on
     
     tft_command_write(0x3A); // Interface pixel format
-    tft_data_write(0x55);    // 16-bit pixel format (5-6-5 RGB)
+    tft_data_write(0x55);    // 16-bit pixel format
 
     // Add more initialization commands as needed based on the ST7793 datasheet
-
-    tft_command_write(0x29); // Display on
-
-    printk(KERN_INFO "ST7793 initialization sequence complete\n");
 }
 
 // write memory to TFT
@@ -185,7 +167,6 @@ static void st7793_update_display_area(const struct fb_image *image)
     
     tft_data_write((image->dx + image->width) >> 8);
     tft_data_write(image->dx + image->width);
-    
     // set row
     (ORIENTATION) ? tft_command_write(0x2A) : tft_command_write(0x2B);
     
@@ -219,7 +200,6 @@ static void st7793_update_display_area(const struct fb_image *image)
 static void st7793_update_display_color_area(const struct fb_fillrect *rect)
 {
     int x, y;
-    
     // set column
     (ORIENTATION) ? tft_command_write(0x2B) : tft_command_write(0x2A);
     
@@ -228,8 +208,8 @@ static void st7793_update_display_color_area(const struct fb_fillrect *rect)
     
     tft_data_write((rect->dx + rect->width) >> 8);
     tft_data_write(rect->dx + rect->width);
-    
     // set row
+    
     (ORIENTATION) ? tft_command_write(0x2A) : tft_command_write(0x2B);
     
     tft_data_write(rect->dy >> 8);
@@ -327,7 +307,7 @@ static ssize_t st7793_write(struct fb_info *info, const char __user *buf, size_t
         count = total_size - p;
     }
 
-    dst = (void __force *)(info->screen_base + p);
+    dst = (void __force *) (info->screen_base + p);
 
     if (info->fbops->fb_sync)
         info->fbops->fb_sync(info);
@@ -373,7 +353,7 @@ static ssize_t st7793_read(struct fb_info *info, char __user *buf, size_t count,
         count = total_size - p;
     }
 
-    dst = (void __force *)(info->screen_base + p);
+    dst = (void __force *) (info->screen_base + p);
 
     if (info->fbops->fb_sync)
         info->fbops->fb_sync(info);
@@ -393,49 +373,50 @@ static void st7793_deferred_io(struct fb_info *info, struct list_head *pagelist)
 }
 
 static struct fb_fix_screeninfo st7793_fix = {
-    .id = "st7793",
-    .type = FB_TYPE_PACKED_PIXELS,
-    .visual = FB_VISUAL_TRUECOLOR,
-    .accel = FB_ACCEL_NONE,
-    .xpanstep = 0,
-    .ypanstep = 0,
-    .ywrapstep = 0,
-    .line_length = DISPLAY_WIDTH * DISPLAY_BPP / 8,
+    .id             = "st7793",
+    .type           = FB_TYPE_PACKED_PIXELS,
+    .visual         = FB_VISUAL_TRUECOLOR,
+    .accel          = FB_ACCEL_NONE,
+    .xpanstep       = 0,
+    .ypanstep       = 0,
+    .ywrapstep      = 0,
+    .line_length    = DISPLAY_WIDTH * DISPLAY_BPP / 8,
 };
 
 static struct fb_var_screeninfo st7793_var = {
-    .width = DISPLAY_WIDTH,
-    .height = DISPLAY_HEIGHT,
+    .width          = DISPLAY_WIDTH,
+    .height         = DISPLAY_HEIGHT,
     .bits_per_pixel = DISPLAY_BPP,
-    .xres = DISPLAY_WIDTH,
-    .yres = DISPLAY_HEIGHT,
-    .xres_virtual = DISPLAY_WIDTH,
-    .yres_virtual = DISPLAY_HEIGHT,
-    .activate = FB_ACTIVATE_NOW,
-    .vmode = FB_VMODE_NONINTERLACED,
-    .nonstd = 0,
-    .red.offset = 11,
-    .red.length = 5,
-    .green.offset = 5,
-    .green.length = 6,
-    .blue.offset = 0,
-    .blue.length = 5,
-    .transp.offset = 0,
-    .transp.length = 0,
+    .xres           = DISPLAY_WIDTH,
+    .yres           = DISPLAY_HEIGHT,
+    .xres_virtual   = DISPLAY_WIDTH,
+    .yres_virtual   = DISPLAY_HEIGHT,
+    .activate       = FB_ACTIVATE_NOW,
+    .vmode          = FB_VMODE_NONINTERLACED,
+
+    .nonstd         = 0,
+    .red.offset     = 11,
+    .red.length     = 5,
+    .green.offset   = 5,
+    .green.length   = 6,
+    .blue.offset    = 0,
+    .blue.length    = 5,
+    .transp.offset  = 0,
+    .transp.length  = 0,
 };
 
 static struct fb_ops st7793_ops = {
-    .owner = THIS_MODULE,
-    .fb_read = st7793_read,
-    .fb_write = st7793_write,
-    .fb_fillrect = st7793_fillrect,
-    .fb_copyarea = st7793_copyarea,
-    .fb_imageblit = st7793_imageblit,
+    .owner          = THIS_MODULE,
+    .fb_read        = st7793_read,
+    .fb_write       = st7793_write,
+    .fb_fillrect    = st7793_fillrect,
+    .fb_copyarea    = st7793_copyarea,
+    .fb_imageblit   = st7793_imageblit,
 };
 
 static struct fb_deferred_io st7793_defio = {
-    .delay = HZ / 25,
-    .deferred_io = st7793_deferred_io,
+    .delay          = HZ / 25,
+    .deferred_io    = st7793_deferred_io,
 };
 
 static unsigned int fps;
@@ -449,22 +430,20 @@ static int st7793_probe(struct platform_device *pdev)
 
     printk(KERN_INFO "st7793_probe: Starting probe function\n");
 
+    // Calculate the required video memory size
     vmem_size = st7793_var.width * st7793_var.height * st7793_var.bits_per_pixel / 8;
     printk(KERN_INFO "Calculated vmem_size: %d", vmem_size);
 
-    printk(KERN_INFO "st7793_probe: Starting probe function #1 \n");
+    // Allocate the video memory
     vmem = vzalloc(vmem_size);
     if (!vmem) {
         printk(KERN_ERR "st7793_probe: Failed to allocate video memory\n");
         return -ENOMEM;
     }
-    printk(KERN_INFO "VMEM: %p", (void *)vmem);
-    printk(KERN_INFO "st7793_probe: Starting probe function #2 \n");
     memset(vmem, 0, vmem_size);
-
     printk(KERN_INFO "Allocated VMEM at address: %p", (void *)vmem);
 
-    printk(KERN_INFO "st7793_probe: Starting probe function #3 \n");
+    // Allocate framebuffer info structure
     info = framebuffer_alloc(0, &pdev->dev);
     if (!info) {
         vfree(vmem);
@@ -472,64 +451,54 @@ static int st7793_probe(struct platform_device *pdev)
         return -ENOMEM;
     }
 
-    printk(KERN_INFO "st7793_probe: Starting probe function #4 \n");
+    // Assign the allocated memory to framebuffer info
     info->screen_base = (char __force __iomem *)vmem;
     info->fbops = &st7793_ops;
     info->fix = st7793_fix;
     info->fix.smem_start = (unsigned long)vmem;
     info->fix.smem_len = vmem_size;
     info->var = st7793_var;
-    info->flags = FBINFO_VIRTFB;
-    printk(KERN_INFO "st7793_probe: Starting probe function #5 \n");
+    info->flags = FBINFO_FLAG_DEFAULTS | FBINFO_VIRTFB;
+
     info->fbdefio = &st7793_defio;
-    printk(KERN_INFO "st7793_probe: Starting probe function #6 \n");
-
-    if (0 < fps) {
-        printk(KERN_INFO "st7793_probe: Starting probe function #6.2 \n");
-        info->fbdefio->delay = HZ/fps;
-    }
-
-    printk(KERN_INFO "st7793_probe: Starting probe function #6.5 \n");
-
     fb_deferred_io_init(info);
-    printk(KERN_INFO "st7793_probe: Starting probe function #7 \n");
 
-
-    // Debugging: Print fb_info details before registering   
+    // Debugging: Print fb_info details before registering
     printk(KERN_INFO "fb_info details before register_framebuffer:");
     printk(KERN_INFO "screen_base: %p", info->screen_base);
-    printk(KERN_INFO "fix.smem_start: %p", (void *)info->fix.smem_start);
-    printk(KERN_INFO "fix.smem_start: %lu", (unsigned long)info->fix.smem_start);
+    printk(KERN_INFO "fix.smem_start: %lx", (unsigned long)info->fix.smem_start);
     printk(KERN_INFO "fix.smem_len: %u", info->fix.smem_len);
     printk(KERN_INFO "var.xres: %u", info->var.xres);
     printk(KERN_INFO "var.yres: %u", info->var.yres);
     printk(KERN_INFO "var.bits_per_pixel: %u", info->var.bits_per_pixel);
 
-
-
+    // Register the framebuffer
     retval = register_framebuffer(info);
-    printk(KERN_INFO "st7793_probe: Starting probe function #8 \n");
     if (retval < 0) {
-        printk(KERN_INFO "st7793_probe: Starting probe function #9 \n");
         framebuffer_release(info);
-        printk(KERN_INFO "st7793_probe: Starting probe function #9.1 \n");
         vfree(vmem);
         printk(KERN_ERR "st7793_probe: Failed to register framebuffer\n");
         return retval;
     }
-    printk(KERN_INFO "st7793_probe: Starting probe function #10 \n");
+    printk(KERN_INFO "Framebuffer registered successfully");
+
     platform_set_drvdata(pdev, info);
 
+    // Map GPIO memory
     gpio = ioremap(GPIO_BASE, BLOCKSIZE);
     if (!gpio) {
         printk(KERN_ERR "st7793_probe: Failed to map GPIO memory\n");
+        framebuffer_release(info);
+        vfree(vmem);
         return -ENOMEM;
     }
+    printk(KERN_INFO "GPIO memory mapped successfully");
 
+    // Initialize the display
     tft_init_board(info);
     tft_hard_reset();
     tft_init(info);
-    printk(KERN_INFO "st7793_probe: Starting probe function #7 \n");
+
     printk(KERN_INFO "fb%d: ST7793 LCD framebuffer device\n", info->node);
     return 0;
 }
@@ -554,10 +523,10 @@ static int st7793_remove(struct platform_device *dev)
 }
 
 static struct platform_driver st7793_driver = {
-    .probe = st7793_probe,
+    .probe  = st7793_probe,
     .remove = st7793_remove,
     .driver = {
-        .name = "st7793",
+        .name   = "st7793",
     },
 };
 
@@ -594,5 +563,5 @@ module_init(st7793_init);
 module_exit(st7793_exit);
 
 MODULE_DESCRIPTION("ST7793 LCD framebuffer driver");
-MODULE_AUTHOR("JuanDelgado");
+MODULE_AUTHOR("juandelgado");
 MODULE_LICENSE("GPL");
