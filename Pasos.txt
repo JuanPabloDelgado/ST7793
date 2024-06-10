@@ -1,0 +1,94 @@
+### PASO 1 - Instalar dependencias
+sudo apt-get update
+sudo apt-get install raspberrypi-kernel-headers build-essential git fbi
+apt-get install -y mplayer
+
+
+### PASO 2 - Modificar y agregar el modes (/etc/fb.modes) [NO ES ESTRICTAMENTE NECESARIO AHORA, SI LO ES EN CASO QUE USEMOS UNA APP]
+
+mode "400x240-60"
+    # D: 32.000 MHz, H: 41.600 kHz, V: 60.000 Hz
+    geometry 400 240 400 240 8
+    timings 31250 10 2 2 4 10 4
+    rgba 8/0,8/0,8/0,8/0
+endmode
+
+
+
+
+
+### PASO 3 - Modificar el config.txt (comentar todo lo anterior por las dudas - /boot/firmware/config.txt)
+
+# Enable DPI (Parallel Display Interface) overlay
+dtoverlay=dpi8
+
+# Enable the DPI LCD
+enable_dpi_lcd=1
+display_default_lcd=1
+
+# Display settings for an 8-bit screen
+dpi_group=2
+dpi_mode=87
+dpi_output_format=0x107  # 8-bit mode
+
+# HDMI timings for 400x240 resolution
+# hdmi_timings=400 0 10 2 2 240 0 2 2 4 0 0 0 60 0 32000000 6
+
+
+
+### PASO 4 - Crear Makefile (nano Makefile)
+obj-m := st7793_fb.o
+
+KDIR = /lib/modules/$(shell uname -r)/build
+
+all:
+    make -C $(KDIR) M=$(shell pwd) modules
+
+clean:
+    make -C $(KDIR) M=$(shell pwd) modules clean
+
+
+
+
+
+
+
+
+
+
+
+### PASO 5 - Crear archivo driver
+
+nano st7793_fb.c  (Probar con la versión 5)
+
+
+### PASO 6 - Correr el comando make
+
+
+
+### PASO 7
+sudo insmod st7793_fb.ko
+
+
+### PASO 8 - Verify the framebuffer
+dmesg | grep -i fb
+
+
+### PASO 9
+
+## Copy the st7793_fb.ko module to the directory where kernel modules are stored:
+sudo cp st7793_fb.ko /lib/modules/$(uname -r)/kernel/drivers/video/
+
+## Run depmod to update the module dependency list:
+sudo depmod
+
+## Add the module to the list of modules to be loaded at boot by appending st7793_fb to the /etc/modules file:
+echo "st7793_fb" | sudo tee -a /etc/modules
+
+
+
+
+
+--- Other commands
+
+

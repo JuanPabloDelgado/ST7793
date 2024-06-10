@@ -11,9 +11,10 @@
 #include <linux/backlight.h>
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
+#include <linux/io.h>
 
-#define BCM2708_PERI_BASE        0x3F000000  /* For Raspberry Pi Zero 2W (or 0xFE000000) - for older models this may change */
-#define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
+#define BCM2710A1_PERI_BASE      0x20000000 /* 0x3F000000 */
+#define GPIO_BASE                (BCM2710A1_PERI_BASE + 0x200000) /* GPIO controller */
 #define BLOCKSIZE (4*1024)
 
 // GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x) or SET_GPIO_ALT(x,y)
@@ -181,15 +182,15 @@ static void st7793_update_display_area(const struct fb_image *image)
     if (ORIENTATION == 0) {
         for (y = 0; y < image->width; y++) {
             for (x = 0; x < image->height; x++) {
-                tft_data_write(image->data[(image->dx * (2 * image->width)) + (image->dy * 2) + 1]);
-                tft_data_write(image->data[(image->dx * (2 * image->width)) + (image->dy * 2) + 2]);
+                tft_data_write(image->data[(image->dy * (2 * image->width)) + (image->dx * 2)]);
+                tft_data_write(image->data[(image->dy * (2 * image->width)) + (image->dx * 2) + 1]);
             }
         }
     } else {
         for (y = 0; y < image->width; y++) {
             for (x = 0; x < image->height; x++) {
-                tft_data_write(image->data[(image->dx * (2 * image->width)) + (image->dy * 2) + 1]);
-                tft_data_write(image->data[(image->dx * (2 * image->width)) + (image->dy * 2) + 2]);
+                tft_data_write(image->data[(image->dy * (2 * image->width)) + (image->dx * 2)]);
+                tft_data_write(image->data[(image->dy * (2 * image->width)) + (image->dx * 2) + 1]);
             }
         }
     }
@@ -274,6 +275,17 @@ static void st7793_copyarea(struct fb_info *info, const struct fb_copyarea *area
 
 static void st7793_imageblit(struct fb_info *info, const struct fb_image *image)
 {
+    if (!info || !image) {
+        printk(KERN_ERR "st7793_imageblit: Invalid info or image pointer\n");
+        return;
+    }
+    
+    // Ensure the data pointer is valid
+    if (!image->data) {
+        printk(KERN_ERR "st7793_imageblit: Invalid image data pointer\n");
+        return;
+    }
+
     st7793_update_display_area(image);
 }
 
@@ -405,6 +417,26 @@ static struct fb_var_screeninfo st7793_var = {
     .transp.length  = 0,
 };
 
+static int st7793_mmap(struct fb_info *info, struct vm_area_struct *vma)
+{
+    unsigned long offset = vma->vm_pgoff << PAGE_SHIFT;
+    unsigned long pfn = virt_to_phys((void *)info->screen_base) >> PAGE_SHIFT;
+    unsigned long size = vma->vm_end - vma->vm_start;
+
+    if (offset >= info->fix.smem_len) {
+        return -EINVAL;
+    }
+    if (size > info->fix.smem_len - offset) {
+        return -EINVAL;
+    }
+
+    if (remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot)) {
+        return -EAGAIN;
+    }
+
+    return fb_deferred_io_mmap(info, vma);  // Correct call to set up deferred IO
+}
+
 static struct fb_ops st7793_ops = {
     .owner          = THIS_MODULE,
     .fb_read        = st7793_read,
@@ -412,6 +444,7 @@ static struct fb_ops st7793_ops = {
     .fb_fillrect    = st7793_fillrect,
     .fb_copyarea    = st7793_copyarea,
     .fb_imageblit   = st7793_imageblit,
+    .fb_mmap        = st7793_mmap,
 };
 
 static struct fb_deferred_io st7793_defio = {
@@ -464,13 +497,22 @@ static int st7793_probe(struct platform_device *pdev)
     fb_deferred_io_init(info);
 
     // Debugging: Print fb_info details before registering
-    printk(KERN_INFO "fb_info details before register_framebuffer:");
+    printk(KERN_INFO "--fb_info details before register_framebuffer--");
     printk(KERN_INFO "screen_base: %p", info->screen_base);
     printk(KERN_INFO "fix.smem_start: %lx", (unsigned long)info->fix.smem_start);
     printk(KERN_INFO "fix.smem_len: %u", info->fix.smem_len);
     printk(KERN_INFO "var.xres: %u", info->var.xres);
     printk(KERN_INFO "var.yres: %u", info->var.yres);
     printk(KERN_INFO "var.bits_per_pixel: %u", info->var.bits_per_pixel);
+
+
+    // Ensure all required fields are set
+    if (!info->fbops || !info->screen_base) {
+        printk(KERN_ERR "st7793_probe: fb_info not properly initialized\n");
+        framebuffer_release(info);
+        vfree(vmem);
+        return -EINVAL;
+    }
 
     // Register the framebuffer
     retval = register_framebuffer(info);
